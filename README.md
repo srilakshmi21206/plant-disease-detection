@@ -30,7 +30,7 @@ Sri Lakshmi K
 ## 📸 Screenshots
 
 ### Home Page
-![Home](screenshot1 (1).png)
+![Home](screenshot1(1).png)
 
 ### Disease Detection Result
 ![Result](screenshot2(2).png)
