@@ -27,3 +27,10 @@ streamlit run app.py
 
 ## 👩‍💻 Built By
 Sri Lakshmi K 
+## 📸 Screenshots
+
+### Home Page
+![Home](screenshot1.png)
+
+### Disease Detection Result
+![Result](screenshot2.png)
