@@ -37,7 +37,17 @@ An AI-powered web application that detects plant diseases from leaf images using
 - Mosaic Virus
 
 ## 📁 Project Structure
-```text plant-disease-detection/ ├── app.py ← Main Streamlit web app ├── config.py ← Configuration settings ├── disease_db.py ← Disease database ├── utils.py ← Helper functions ├── model/ │ └── train.py ← CNN model training ├── model.h5 ← Trained model └── requirements.txt ```
+```text
+plant-disease-detection/
+├── app.py          ← Main Streamlit web app
+├── config.py       ← Configuration settings
+├── disease_db.py   ← Disease database
+├── utils.py        ← Helper functions
+├── model/
+│   └── train.py    ← CNN model training
+├── model.h5        ← Trained model
+└── requirements.txt
+```
 ## ▶️ How to Run
 ```bash
 # Clone the repository
