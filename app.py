@@ -3,7 +3,7 @@ import streamlit as st
 import numpy as np
 import time
 import logging
-import html
+import gc
 import io
 import csv
 
@@ -36,7 +36,7 @@ st.markdown("""
 # Load model
 model = load_model_safe()
 
-# Dynamic supported plants from CLASS_NAMES
+# Dynamic supported plants
 supported_plants = sorted(set([name.split(' ')[0] for name in CLASS_NAMES if name != 'PlantVillage']))
 
 # Header
@@ -104,7 +104,17 @@ else:
     results_data = []
     total_start = time.time()
 
+    # Overall batch progress bar
+    if len(uploaded_files) > 1:
+        st.write(f"📊 Processing {len(uploaded_files)} images...")
+        batch_progress = st.progress(0)
+
     for idx, uploaded_file in enumerate(uploaded_files):
+
+        # Update batch progress
+        if len(uploaded_files) > 1:
+            batch_progress.progress((idx) / len(uploaded_files))
+
         st.subheader(f"🌿 Image {idx+1}: {uploaded_file.name}")
 
         # File size check
@@ -118,21 +128,30 @@ else:
 
         centered_image(image, f"{uploaded_file.name} ({image.size[0]}x{image.size[1]}px)")
 
-        # Predict with timeout tracking
+        # Predict
         with st.spinner(f"🔍 Analyzing {uploaded_file.name}..."):
             start_time = time.time()
-            prediction = predict_safe(model, img_array)
-            processing_time = time.time() - start_time
+            try:
+                prediction = predict_safe(model, img_array)
+                processing_time = time.time() - start_time
+            except Exception as e:
+                logger.error(f"Prediction error for {uploaded_file.name}: {e}")
+                st.error(f"❌ Failed to analyze image: {str(e)[:100]}")
+                continue
 
-        if prediction is None:
-            st.error("❌ Prediction failed! Please try again.")
+        # Validate prediction shape
+        if prediction is None or prediction.shape != (1, len(CLASS_NAMES)):
+            st.error("❌ Invalid prediction format! Please try again.")
             continue
 
-        predicted_class = CLASS_NAMES[np.argmax(prediction)]
-        confidence = float(np.max(prediction) * 100)
-        safe_class = html.escape(predicted_class)
+        predicted_class = CLASS_NAMES[np.argmax(prediction[0])]
+        confidence = float(np.max(prediction[0]) * 100)
 
         logger.info(f"[{uploaded_file.name}] {predicted_class} ({confidence:.2f}%) in {processing_time:.2f}s")
+
+        # Free memory
+        del img_array
+        gc.collect()
 
         st.divider()
         st.caption(f"⏱️ Analyzed in {processing_time:.2f}s")
@@ -157,19 +176,20 @@ else:
 
         # Top 3 predictions
         with st.expander("🔢 Top 3 Predictions"):
-            top_3_indices = np.argsort(prediction[0])[-3:][::-1]
-            for i, top_idx in enumerate(top_3_indices):
-                name = CLASS_NAMES[top_idx]
-                score = float(prediction[0][top_idx] * 100)
-                emoji = "🥇" if i == 0 else "🥈" if i == 1 else "🥉"
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.write(f"{emoji} {name}")
-                    st.progress(int(score))
-                with col2:
-                    st.write(f"**{score:.1f}%**")
+            if len(prediction[0]) >= 3:
+                top_3_indices = np.argsort(prediction[0])[-3:][::-1]
+                for i, top_idx in enumerate(top_3_indices):
+                    name = CLASS_NAMES[top_idx]
+                    score = float(prediction[0][top_idx] * 100)
+                    emoji = "🥇" if i == 0 else "🥈" if i == 1 else "🥉"
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"{emoji} {name}")
+                        st.progress(int(score))
+                    with col2:
+                        st.write(f"**{score:.1f}%**")
 
-        # Result
+        # Result using native Streamlit components
         is_healthy = "healthy" in predicted_class.lower()
         details = DISEASE_DATABASE.get(predicted_class, {
             'severity': 'Unknown', 'severity_color': '#888',
@@ -178,23 +198,14 @@ else:
         })
 
         if is_healthy:
-            st.markdown("""
-                <div style="background-color:#e8f5e9; padding:20px; border-radius:10px; margin-top:20px;">
-                    <h3 style="color:#2e7d32;">✅ Healthy Plant</h3>
-                    <p style="color:#333;">Your plant looks healthy! Keep up the good care.</p>
-                </div>
-            """, unsafe_allow_html=True)
+            st.success("✅ **Healthy Plant** — Your plant looks healthy! Keep up the good care.")
             st.balloons()
         else:
-            st.markdown(f"""
-                <div style="background-color:#fff3e0; padding:20px; border-radius:10px; margin-top:20px;">
-                    <h3 style="color:#e65100;">⚠️ Disease Detected</h3>
-                    <p style="color:#333;"><b>Severity:</b> <span style="color:{details['severity_color']}; font-weight:bold;">🌡️ {details['severity']}</span></p>
-                    <p style="color:#333;"><b>🔬 Cause:</b> {html.escape(details['cause'])}</p>
-                    <p style="color:#333;"><b>💊 Treatment:</b> {html.escape(details['cure'])}</p>
-                    <p style="color:#333;"><b>🛡️ Prevention:</b> {html.escape(details['prevention'])}</p>
-                </div>
-            """, unsafe_allow_html=True)
+            st.error(f"⚠️ **Disease Detected!**")
+            st.markdown(f"🌡️ **Severity:** :{details['severity_color'].replace('#','')}[{details['severity']}]")
+            st.markdown(f"🔬 **Cause:** {details['cause']}")
+            st.markdown(f"💊 **Treatment:** {details['cure']}")
+            st.markdown(f"🛡️ **Prevention:** {details['prevention']}")
 
         results_data.append({
             'Image': uploaded_file.name,
@@ -209,9 +220,10 @@ else:
 
         st.divider()
 
-    # Total time
-    total_time = time.time() - total_start
+    # Complete batch progress
     if len(uploaded_files) > 1:
+        batch_progress.progress(1.0)
+        total_time = time.time() - total_start
         st.success(f"✅ Analyzed {len(uploaded_files)} images in {total_time:.2f}s!")
 
     # Export CSV
