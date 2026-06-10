@@ -26,4 +26,4 @@ streamlit run app.py
 ```
 
 ## 👩‍💻 Built By
-Sri Lakshmi K — ECE Internship Project 2026
+Sri Lakshmi K 
