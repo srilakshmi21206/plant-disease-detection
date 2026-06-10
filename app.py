@@ -3,7 +3,7 @@ import streamlit as st
 import numpy as np
 import time
 import logging
-import gc
+import html
 import io
 import csv
 
@@ -11,18 +11,27 @@ from config import CONFIG
 from disease_db import CLASS_NAMES, DISEASE_DATABASE
 from utils import load_model_safe, preprocess_image, predict_safe, centered_image
 
-# Logging
-logging.basicConfig(level=logging.INFO)
+# ── Constants ──────────────────────────────────────────────────────────────────
+MAX_TOP_PREDICTIONS = 3
+MIN_CONFIDENCE_DEFAULT = 70
+COLUMN_RATIO = [3, 1]
+MEDALS = ["🥇", "🥈", "🥉"]
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# Validate config keys
+# ── Config Validation ──────────────────────────────────────────────────────────
+def get_config(key, default=None):
+    return CONFIG.get(key, default)
+
 required_keys = ["image_size", "model_path", "min_confidence", "max_file_size_mb", "min_image_pixels"]
 for key in required_keys:
     if key not in CONFIG:
         st.error(f"❌ Missing config key: '{key}'. Please check config.py")
         st.stop()
 
-# Page config
+# ── Page Config ────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Plant Disease Detector", page_icon="🌿", layout="centered")
 
 st.markdown("""
@@ -33,56 +42,130 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Load model
+# ── Model Loading ──────────────────────────────────────────────────────────────
 model = load_model_safe()
 
-# Dynamic supported plants
-supported_plants = sorted(set([name.split(' ')[0] for name in CLASS_NAMES if name != 'PlantVillage']))
+# ── Dynamic Supported Plants ───────────────────────────────────────────────────
+supported_plants = sorted(set([
+    name.split(' ')[0] for name in CLASS_NAMES
+    if name != 'PlantVillage' and ' ' in name
+]))
 
-# Header
-st.markdown('<div class="title">🌿 Plant Disease Detection System</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">AI-powered plant health analysis using Deep Learning</div>', unsafe_allow_html=True)
-st.divider()
+# ── UI Components ──────────────────────────────────────────────────────────────
+def render_header():
+    st.markdown('<div class="title">🌿 Plant Disease Detection System</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">AI-powered plant health analysis using Deep Learning</div>', unsafe_allow_html=True)
+    st.divider()
 
-# Sidebar
-st.sidebar.title("⚙️ Settings")
-confidence_threshold = st.sidebar.slider(
-    "Minimum Confidence Threshold (%)",
-    min_value=0, max_value=100,
-    value=int(CONFIG["min_confidence"]),
-    help="Predictions below this threshold will show a warning"
-)
-reject_low_confidence = st.sidebar.checkbox(
-    "Reject predictions below threshold",
-    value=False,
-    help="If checked, predictions below threshold won't be shown"
-)
-st.sidebar.info(f"Current threshold: **{confidence_threshold}%**")
-st.sidebar.divider()
-st.sidebar.subheader("🌱 Supported Plants")
-for plant in supported_plants:
-    st.sidebar.write(f"✅ {plant}")
+def render_sidebar():
+    st.sidebar.title("⚙️ Settings")
+    threshold = st.sidebar.slider(
+        "Minimum Confidence Threshold (%)",
+        min_value=0, max_value=100,
+        value=int(get_config("min_confidence", MIN_CONFIDENCE_DEFAULT)),
+        help="Predictions below this threshold will show a warning"
+    )
+    reject = st.sidebar.checkbox(
+        "Reject predictions below threshold",
+        value=False,
+        help="If checked, predictions below threshold won't be shown"
+    )
+    st.sidebar.info(f"Current threshold: **{threshold}%**")
+    st.sidebar.divider()
+    st.sidebar.subheader("🌱 Supported Plants")
+    for plant in supported_plants:
+        st.sidebar.write(f"✅ {plant}")
+    return threshold, reject
 
-# How to Use
-with st.expander("ℹ️ How to Use"):
-    st.markdown(f"""
-    <div style="background-color:#e8f5e9; padding:15px; border-radius:10px;">
-        <b style="color:#2e7d32;">📌 Instructions:</b>
-        <ol style="color:#333;">
-            <li>Upload a clear image of a plant leaf (JPG/PNG)</li>
-            <li>Make sure the leaf is clearly visible and well-lit</li>
-            <li>Recommended image size: at least {CONFIG['image_size']}x{CONFIG['image_size']} pixels</li>
-            <li>Supported plants: {', '.join(supported_plants)}</li>
-            <li>The AI will detect disease and show treatment advice</li>
-        </ol>
-        <b style="color:#2e7d32;">✅ Supported Diseases:</b>
-        <p style="color:#333;">Bacterial Spot, Early Blight, Late Blight, Leaf Mold, Septoria Leaf Spot, Spider Mites, Target Spot, Yellow Leaf Curl Virus, Mosaic Virus</p>
-        <b style="color:#2e7d32;">📁 Max File Size:</b>
-        <p style="color:#333;">{CONFIG['max_file_size_mb']}MB per image</p>
-    </div>
-    """, unsafe_allow_html=True)
+def render_how_to_use():
+    with st.expander("ℹ️ How to Use"):
+        st.markdown(f"""
+        <div style="background-color:#e8f5e9; padding:15px; border-radius:10px;">
+            <b style="color:#2e7d32;">📌 Instructions:</b>
+            <ol style="color:#333;">
+                <li>Upload a clear image of a plant leaf (JPG/PNG)</li>
+                <li>Make sure the leaf is clearly visible and well-lit</li>
+                <li>Recommended image size: at least {get_config('image_size')}x{get_config('image_size')} pixels</li>
+                <li>Supported plants: {', '.join(supported_plants)}</li>
+                <li>The AI will detect disease and show treatment advice</li>
+            </ol>
+            <b style="color:#2e7d32;">✅ Supported Diseases:</b>
+            <p style="color:#333;">Bacterial Spot, Early Blight, Late Blight, Leaf Mold, Septoria Leaf Spot, Spider Mites, Target Spot, Yellow Leaf Curl Virus, Mosaic Virus</p>
+            <b style="color:#2e7d32;">📁 Max File Size:</b>
+            <p style="color:#333;">{get_config('max_file_size_mb')}MB per image</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-# Multi-image upload
+def render_results(prediction, predicted_class, confidence, processing_time, confidence_threshold, reject_low_confidence):
+    """Display analysis results for a single image."""
+
+    st.divider()
+    st.caption(f"⏱️ Analyzed in {processing_time:.2f}s")
+
+    # Reject low confidence
+    if reject_low_confidence and confidence < confidence_threshold:
+        st.error(f"❌ Confidence too low ({confidence:.1f}%)! Please upload a clearer image.")
+        return False
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("🌱 Detected", predicted_class)
+    with col2:
+        st.metric("🎯 Confidence", f"{confidence:.2f}%")
+
+    st.write("Confidence Level:")
+    st.progress(min(int(confidence), 100))
+
+    if confidence < confidence_threshold:
+        st.warning(f"⚠️ Low confidence ({confidence:.1f}%)! Try a clearer image.")
+
+    # Top predictions
+    with st.expander("🔢 Top Predictions"):
+        top_k = min(MAX_TOP_PREDICTIONS, len(prediction[0]))
+        top_indices = np.argsort(prediction[0])[-top_k:][::-1]
+        for i, top_idx in enumerate(top_indices):
+            name = CLASS_NAMES[top_idx]
+            score = float(prediction[0][top_idx] * 100)
+            emoji = MEDALS[i] if i < len(MEDALS) else "📍"
+            col1, col2 = st.columns(COLUMN_RATIO)
+            with col1:
+                st.write(f"{emoji} {name}")
+                st.progress(min(int(score), 100))
+            with col2:
+                st.write(f"**{score:.1f}%**")
+
+    # Disease/Healthy result
+    is_healthy = "healthy" in predicted_class.lower()
+
+    # Warn if disease not in database
+    if predicted_class not in DISEASE_DATABASE:
+        st.warning(f"⚠️ '{predicted_class}' not in database. Using generic guidance.")
+
+    details = DISEASE_DATABASE.get(predicted_class, {
+        'severity': 'Unknown', 'severity_color': '#888',
+        'cause': 'Unknown', 'cure': 'Consult an expert.',
+        'prevention': 'Monitor regularly.'
+    })
+
+    if is_healthy:
+        st.success("✅ **Healthy Plant** — Your plant looks healthy! Keep up the good care.")
+        st.balloons()
+    else:
+        color = details.get('severity_color', '#888').lstrip('#').lower()
+        st.error("⚠️ **Disease Detected!**")
+        st.markdown(f"🌡️ **Severity:** :{color}[{details['severity']}]")
+        st.markdown(f"🔬 **Cause:** {details['cause']}")
+        st.markdown(f"💊 **Treatment:** {details['cure']}")
+        st.markdown(f"🛡️ **Prevention:** {details['prevention']}")
+
+    return True
+
+# ── Main App ───────────────────────────────────────────────────────────────────
+render_header()
+confidence_threshold, reject_low_confidence = render_sidebar()
+render_how_to_use()
+
+# Upload
 uploaded_files = st.file_uploader(
     "📤 Upload leaf image(s)",
     type=["jpg", "jpeg", "png"],
@@ -104,7 +187,7 @@ else:
     results_data = []
     total_start = time.time()
 
-    # Overall batch progress bar
+    # Batch progress bar
     if len(uploaded_files) > 1:
         st.write(f"📊 Processing {len(uploaded_files)} images...")
         batch_progress = st.progress(0)
@@ -113,30 +196,32 @@ else:
 
         # Update batch progress
         if len(uploaded_files) > 1:
-            batch_progress.progress((idx) / len(uploaded_files))
+            batch_progress.progress((idx + 1) / len(uploaded_files))
 
-        st.subheader(f"🌿 Image {idx+1}: {uploaded_file.name}")
+        # Sanitize file name
+        safe_name = html.escape(uploaded_file.name)
+        st.subheader(f"🌿 Image {idx+1}: {safe_name}")
 
         # File size check
-        if uploaded_file.size > CONFIG["max_file_size_mb"] * 1024 * 1024:
-            st.error(f"❌ '{uploaded_file.name}' is too large! Max size is {CONFIG['max_file_size_mb']}MB.")
+        if uploaded_file.size > get_config("max_file_size_mb", 10) * 1024 * 1024:
+            st.error(f"❌ '{safe_name}' is too large! Max size is {get_config('max_file_size_mb')}MB.")
             continue
 
         image, img_array = preprocess_image(uploaded_file)
         if image is None:
             continue
 
-        centered_image(image, f"{uploaded_file.name} ({image.size[0]}x{image.size[1]}px)")
+        centered_image(image, f"{safe_name} ({image.size[0]}x{image.size[1]}px)")
 
         # Predict
-        with st.spinner(f"🔍 Analyzing {uploaded_file.name}..."):
+        with st.spinner(f"🔍 Analyzing {safe_name}..."):
             start_time = time.time()
             try:
                 prediction = predict_safe(model, img_array)
                 processing_time = time.time() - start_time
             except Exception as e:
                 logger.error(f"Prediction error for {uploaded_file.name}: {e}")
-                st.error(f"❌ Failed to analyze image: {str(e)[:100]}")
+                st.error(f"❌ Failed to analyze image. Please try again.")
                 continue
 
         # Validate prediction shape
@@ -144,85 +229,44 @@ else:
             st.error("❌ Invalid prediction format! Please try again.")
             continue
 
-        predicted_class = CLASS_NAMES[np.argmax(prediction[0])]
-        confidence = float(np.max(prediction[0]) * 100)
-
-        logger.info(f"[{uploaded_file.name}] {predicted_class} ({confidence:.2f}%) in {processing_time:.2f}s")
-
-        # Free memory
-        del img_array
-        gc.collect()
-
-        st.divider()
-        st.caption(f"⏱️ Analyzed in {processing_time:.2f}s")
-
-        # Reject low confidence if enabled
-        if reject_low_confidence and confidence < confidence_threshold:
-            st.error(f"❌ Confidence too low ({confidence:.1f}%)! Please upload a clearer image.")
+        # Validate prediction index
+        pred_idx = int(np.argmax(prediction[0]))
+        if pred_idx >= len(CLASS_NAMES):
+            st.error("❌ Model returned invalid prediction index!")
             continue
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("🌱 Detected", predicted_class)
-        with col2:
-            st.metric("🎯 Confidence", f"{confidence:.2f}%")
+        predicted_class = CLASS_NAMES[pred_idx]
+        confidence = float(np.max(prediction[0]) * 100)
 
-        st.write("Confidence Level:")
-        st.progress(int(confidence))
+        logger.warning(f"[{uploaded_file.name}] {predicted_class} ({confidence:.2f}%) in {processing_time:.2f}s")
 
-        # Low confidence warning
-        if confidence < confidence_threshold:
-            st.warning(f"⚠️ Low confidence ({confidence:.1f}%)! Try a clearer image.")
+        # Render results
+        success = render_results(
+            prediction, predicted_class, confidence,
+            processing_time, confidence_threshold, reject_low_confidence
+        )
 
-        # Top 3 predictions
-        with st.expander("🔢 Top 3 Predictions"):
-            if len(prediction[0]) >= 3:
-                top_3_indices = np.argsort(prediction[0])[-3:][::-1]
-                for i, top_idx in enumerate(top_3_indices):
-                    name = CLASS_NAMES[top_idx]
-                    score = float(prediction[0][top_idx] * 100)
-                    emoji = "🥇" if i == 0 else "🥈" if i == 1 else "🥉"
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"{emoji} {name}")
-                        st.progress(int(score))
-                    with col2:
-                        st.write(f"**{score:.1f}%**")
-
-        # Result using native Streamlit components
-        is_healthy = "healthy" in predicted_class.lower()
-        details = DISEASE_DATABASE.get(predicted_class, {
-            'severity': 'Unknown', 'severity_color': '#888',
-            'cause': 'Unknown', 'cure': 'Consult an expert.',
-            'prevention': 'Monitor regularly.'
-        })
-
-        if is_healthy:
-            st.success("✅ **Healthy Plant** — Your plant looks healthy! Keep up the good care.")
-            st.balloons()
-        else:
-            st.error(f"⚠️ **Disease Detected!**")
-            st.markdown(f"🌡️ **Severity:** :{details['severity_color'].replace('#','')}[{details['severity']}]")
-            st.markdown(f"🔬 **Cause:** {details['cause']}")
-            st.markdown(f"💊 **Treatment:** {details['cure']}")
-            st.markdown(f"🛡️ **Prevention:** {details['prevention']}")
-
-        results_data.append({
-            'Image': uploaded_file.name,
-            'Detected Disease': predicted_class,
-            'Confidence (%)': f"{confidence:.2f}",
-            'Severity': details['severity'],
-            'Cause': details['cause'],
-            'Treatment': details['cure'],
-            'Prevention': details['prevention'],
-            'Processing Time (s)': f"{processing_time:.2f}"
-        })
+        if success:
+            details = DISEASE_DATABASE.get(predicted_class, {
+                'severity': 'Unknown', 'severity_color': '#888',
+                'cause': 'Unknown', 'cure': 'Consult an expert.',
+                'prevention': 'Monitor regularly.'
+            })
+            results_data.append({
+                'Image': uploaded_file.name,
+                'Detected Disease': predicted_class,
+                'Confidence (%)': f"{confidence:.2f}",
+                'Severity': details['severity'],
+                'Cause': details['cause'],
+                'Treatment': details['cure'],
+                'Prevention': details['prevention'],
+                'Processing Time (s)': f"{processing_time:.2f}"
+            })
 
         st.divider()
 
     # Complete batch progress
     if len(uploaded_files) > 1:
-        batch_progress.progress(1.0)
         total_time = time.time() - total_start
         st.success(f"✅ Analyzed {len(uploaded_files)} images in {total_time:.2f}s!")
 
