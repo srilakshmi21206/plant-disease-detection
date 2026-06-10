@@ -69,7 +69,7 @@ Edit `config.py` to customize:
 
 ## 📸 Screenshots
 ### Home Page
-![Home](screenshot1(1).png)
+![Home](screenshot.png)
 
 ### Disease Detection Result
 ![Result](screenshot2.png)
