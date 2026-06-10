@@ -51,6 +51,16 @@ supported_plants = sorted(set([
     if name != 'PlantVillage' and ' ' in name
 ]))
 
+# ── Plant Image Validator ──────────────────────────────────────────────────────
+def is_plant_image(image):
+    """Check if image contains enough green tones to be a plant leaf."""
+    img_array = np.array(image.convert("RGB"))
+    r, g, b = img_array[:,:,0], img_array[:,:,1], img_array[:,:,2]
+    green_pixels = np.sum((g > r) & (g > b) & (g > 60))
+    total_pixels = img_array.shape[0] * img_array.shape[1]
+    green_ratio = green_pixels / total_pixels
+    return green_ratio > 0.10  # at least 10% green
+
 # ── UI Components ──────────────────────────────────────────────────────────────
 def render_header():
     st.markdown('<div class="title">🌿 Plant Disease Detection System</div>', unsafe_allow_html=True)
@@ -212,6 +222,11 @@ else:
             continue
 
         centered_image(image, f"{safe_name} ({image.size[0]}x{image.size[1]}px)")
+
+        # ── Plant Image Validation ─────────────────────────────────────────────
+        if not is_plant_image(image):
+            st.error("❌ This doesn't look like a plant leaf image. Please upload a proper leaf photo.")
+            continue
 
         # Predict
         with st.spinner(f"🔍 Analyzing {safe_name}..."):
