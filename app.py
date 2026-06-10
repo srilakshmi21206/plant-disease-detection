@@ -15,6 +15,13 @@ from utils import load_model_safe, preprocess_image, predict_safe, centered_imag
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Validate config keys
+required_keys = ["image_size", "model_path", "min_confidence", "max_file_size_mb", "min_image_pixels"]
+for key in required_keys:
+    if key not in CONFIG:
+        st.error(f"❌ Missing config key: '{key}'. Please check config.py")
+        st.stop()
+
 # Page config
 st.set_page_config(page_title="Plant Disease Detector", page_icon="🌿", layout="centered")
 
@@ -29,12 +36,15 @@ st.markdown("""
 # Load model
 model = load_model_safe()
 
+# Dynamic supported plants from CLASS_NAMES
+supported_plants = sorted(set([name.split(' ')[0] for name in CLASS_NAMES if name != 'PlantVillage']))
+
 # Header
 st.markdown('<div class="title">🌿 Plant Disease Detection System</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">AI-powered plant health analysis using Deep Learning</div>', unsafe_allow_html=True)
 st.divider()
 
-# Sidebar - confidence threshold
+# Sidebar
 st.sidebar.title("⚙️ Settings")
 confidence_threshold = st.sidebar.slider(
     "Minimum Confidence Threshold (%)",
@@ -42,22 +52,33 @@ confidence_threshold = st.sidebar.slider(
     value=int(CONFIG["min_confidence"]),
     help="Predictions below this threshold will show a warning"
 )
+reject_low_confidence = st.sidebar.checkbox(
+    "Reject predictions below threshold",
+    value=False,
+    help="If checked, predictions below threshold won't be shown"
+)
 st.sidebar.info(f"Current threshold: **{confidence_threshold}%**")
+st.sidebar.divider()
+st.sidebar.subheader("🌱 Supported Plants")
+for plant in supported_plants:
+    st.sidebar.write(f"✅ {plant}")
 
 # How to Use
 with st.expander("ℹ️ How to Use"):
-    st.markdown("""
+    st.markdown(f"""
     <div style="background-color:#e8f5e9; padding:15px; border-radius:10px;">
         <b style="color:#2e7d32;">📌 Instructions:</b>
         <ol style="color:#333;">
             <li>Upload a clear image of a plant leaf (JPG/PNG)</li>
             <li>Make sure the leaf is clearly visible and well-lit</li>
-            <li>Recommended image size: at least 128x128 pixels</li>
-            <li>Supported plants: Pepper, Potato, Tomato</li>
+            <li>Recommended image size: at least {CONFIG['image_size']}x{CONFIG['image_size']} pixels</li>
+            <li>Supported plants: {', '.join(supported_plants)}</li>
             <li>The AI will detect disease and show treatment advice</li>
         </ol>
         <b style="color:#2e7d32;">✅ Supported Diseases:</b>
         <p style="color:#333;">Bacterial Spot, Early Blight, Late Blight, Leaf Mold, Septoria Leaf Spot, Spider Mites, Target Spot, Yellow Leaf Curl Virus, Mosaic Virus</p>
+        <b style="color:#2e7d32;">📁 Max File Size:</b>
+        <p style="color:#333;">{CONFIG['max_file_size_mb']}MB per image</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -69,8 +90,19 @@ uploaded_files = st.file_uploader(
     help="Upload one or more leaf images for batch analysis"
 )
 
-if uploaded_files:
+# Empty state
+if not uploaded_files:
+    st.info("👆 Start by uploading a plant leaf image above!")
+    st.markdown("""
+        <div style="text-align:center; padding:40px; color:#aaa;">
+            <h1>🌿</h1>
+            <p>Upload a leaf image to detect plant diseases</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+else:
     results_data = []
+    total_start = time.time()
 
     for idx, uploaded_file in enumerate(uploaded_files):
         st.subheader(f"🌿 Image {idx+1}: {uploaded_file.name}")
@@ -81,29 +113,34 @@ if uploaded_files:
             continue
 
         image, img_array = preprocess_image(uploaded_file)
-
         if image is None:
             continue
 
-        centered_image(image, f"Uploaded: {uploaded_file.name} ({image.size[0]}x{image.size[1]}px)")
+        centered_image(image, f"{uploaded_file.name} ({image.size[0]}x{image.size[1]}px)")
 
-        # Predict
+        # Predict with timeout tracking
         with st.spinner(f"🔍 Analyzing {uploaded_file.name}..."):
             start_time = time.time()
             prediction = predict_safe(model, img_array)
             processing_time = time.time() - start_time
 
         if prediction is None:
+            st.error("❌ Prediction failed! Please try again.")
             continue
 
         predicted_class = CLASS_NAMES[np.argmax(prediction)]
         confidence = float(np.max(prediction) * 100)
         safe_class = html.escape(predicted_class)
 
-        logger.info(f"[{uploaded_file.name}] Predicted: {predicted_class} ({confidence:.2f}%)")
+        logger.info(f"[{uploaded_file.name}] {predicted_class} ({confidence:.2f}%) in {processing_time:.2f}s")
 
         st.divider()
         st.caption(f"⏱️ Analyzed in {processing_time:.2f}s")
+
+        # Reject low confidence if enabled
+        if reject_low_confidence and confidence < confidence_threshold:
+            st.error(f"❌ Confidence too low ({confidence:.1f}%)! Please upload a clearer image.")
+            continue
 
         col1, col2 = st.columns(2)
         with col1:
@@ -159,7 +196,6 @@ if uploaded_files:
                 </div>
             """, unsafe_allow_html=True)
 
-        # Collect results for export
         results_data.append({
             'Image': uploaded_file.name,
             'Detected Disease': predicted_class,
@@ -173,18 +209,21 @@ if uploaded_files:
 
         st.divider()
 
-    # Export results as CSV
+    # Total time
+    total_time = time.time() - total_start
+    if len(uploaded_files) > 1:
+        st.success(f"✅ Analyzed {len(uploaded_files)} images in {total_time:.2f}s!")
+
+    # Export CSV
     if results_data:
         st.subheader("📥 Export Results")
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=results_data[0].keys())
         writer.writeheader()
         writer.writerows(results_data)
-        csv_data = output.getvalue()
-
         st.download_button(
             label="⬇️ Download Results as CSV",
-            data=csv_data,
+            data=output.getvalue(),
             file_name="plant_disease_results.csv",
             mime="text/csv"
         )
