@@ -32,4 +32,7 @@ Sri Lakshmi K
 ### Home Page
 ![Home](screenshot1.png)
 
+### Disease Detection Result
+![Result](screenshot2.png)
+
 
