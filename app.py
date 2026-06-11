@@ -6,8 +6,10 @@ import logging
 import html
 import io
 import csv
+import cv2
 import plotly.express as px
 import pandas as pd
+from PIL import Image
 
 from config import CONFIG
 from disease_db import CLASS_NAMES, DISEASE_DATABASE
@@ -73,7 +75,35 @@ def is_plant_image(image):
     green_pixels = np.sum((g > r) & (g > b) & (g > 80))
     total_pixels = img_array.shape[0] * img_array.shape[1]
     green_ratio = green_pixels / total_pixels
-    return green_ratio > 0.20  # at least 20% green pixels
+    return green_ratio > 0.20
+
+# ── Disease Area Highlighter ───────────────────────────────────────────────────
+def highlight_disease_area(image):
+    """Highlight potential disease areas on leaf using OpenCV."""
+    img_array = np.array(image.convert("RGB"))
+    img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+
+    # Detect brown/yellow spots (disease indicators)
+    lower_brown = np.array([10, 50, 50])
+    upper_brown = np.array([30, 255, 255])
+    lower_yellow = np.array([20, 50, 50])
+    upper_yellow = np.array([40, 255, 255])
+
+    mask_brown = cv2.inRange(hsv, lower_brown, upper_brown)
+    mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    mask = cv2.bitwise_or(mask_brown, mask_yellow)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if contours:
+        for contour in contours:
+            if cv2.contourArea(contour) > 100:
+                x, y, w, h = cv2.boundingRect(contour)
+                cv2.rectangle(img_bgr, (x, y), (x+w, y+h), (0, 0, 255), 2)
+
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    return Image.fromarray(img_rgb)
 
 # ── UI Components ──────────────────────────────────────────────────────────────
 def render_header():
@@ -192,7 +222,8 @@ def render_dashboard():
     with st.expander("📋 Scan History Table"):
         st.dataframe(history_df, use_container_width=True)
 
-def render_results(prediction, predicted_class, confidence, processing_time, confidence_threshold, reject_low_confidence):
+def render_results(prediction, predicted_class, confidence, processing_time, confidence_threshold, reject_low_confidence, image=None):
+    """Display analysis results for a single image."""
     st.divider()
     st.caption(f"⏱️ Analyzed in {processing_time:.2f}s")
 
@@ -241,12 +272,23 @@ def render_results(prediction, predicted_class, confidence, processing_time, con
         st.success("✅ **Healthy Plant** — Your plant looks healthy! Keep up the good care.")
         st.balloons()
     else:
-        color = details.get('severity_color', '#888').lstrip('#').lower()
+        color = details.get('severity_color', '#888')
         st.error("⚠️ **Disease Detected!**")
-        st.markdown(f"🌡️ **Severity:** :{color}[{details['severity']}]")
-        st.markdown(f"🔬 **Cause:** {details['cause']}")
-        st.markdown(f"💊 **Treatment:** {details['cure']}")
-        st.markdown(f"🛡️ **Prevention:** {details['prevention']}")
+        st.markdown(f"""
+            <div style="background-color:#fff3e0; padding:15px; border-radius:10px; margin-top:10px;">
+                <p style="color:#333;"><b>🌡️ Severity:</b> <span style="color:{color}; font-weight:bold;">{details['severity']}</span></p>
+                <p style="color:#333;"><b>🔬 Cause:</b> {details['cause']}</p>
+                <p style="color:#333;"><b>💊 Treatment:</b> {details['cure']}</p>
+                <p style="color:#333;"><b>🛡️ Prevention:</b> {details['prevention']}</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Highlight disease area
+        if image is not None:
+           
+           st.subheader("🗺️ Disease Area Detection")
+           highlighted = highlight_disease_area(image)
+           centered_image(highlighted, "🔴 Red boxes show potential disease areas")
 
     return True
 
@@ -302,7 +344,7 @@ with tab1:
 
             # Plant validation
             if not is_plant_image(image):
-                st.error("❌ This doesn't look like a plant leaf image! Please upload a proper leaf photo with clear green color.")
+                st.error("❌ This doesn't look like a plant leaf image! Please upload a proper leaf photo.")
                 continue
 
             with st.spinner(f"🔍 Analyzing {safe_name}..."):
@@ -329,7 +371,7 @@ with tab1:
 
             success = render_results(
                 prediction, predicted_class, confidence,
-                processing_time, confidence_threshold, reject_low_confidence
+                processing_time, confidence_threshold, reject_low_confidence, image
             )
 
             if success:
