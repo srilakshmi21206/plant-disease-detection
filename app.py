@@ -40,15 +40,88 @@ st.set_page_config(page_title="Plant Disease Detector", page_icon="🌿", layout
 
 st.markdown("""
     <style>
+    /* Nature/Green Earthy Theme */
+    .stApp {
+        background: linear-gradient(180deg, #f1f8e9 0%, #e8f5e9 50%, #f9fbe7 100%);
+    }
+    .stApp * {
+        color: #1b5e20 !important;
+    }
+    p, li, label, span {
+        color: #333333 !important;
+    }
     @media (max-width: 768px) {
         .title { font-size: 1.8em !important; }
         .subtitle { font-size: 0.9em !important; }
         .stButton > button { width: 100% !important; }
     }
-    .title { text-align: center; color: #2e7d32; font-size: 2.5em; font-weight: bold; }
-    .subtitle { text-align: center; color: #555; font-size: 1.1em; margin-bottom: 30px; }
-    .footer { text-align: center; color: #aaa; font-size: 0.8em; margin-top: 50px; }
-    .stButton > button { border-radius: 10px; padding: 10px 20px; font-size: 1em; }
+    .title {
+        text-align: center;
+        font-size: 2.8em;
+        font-weight: bold;
+        background: linear-gradient(90deg, #1b5e20, #4caf50, #8bc34a);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: none;
+        padding: 10px 0;
+    }
+    .subtitle {
+        text-align: center;
+        color: #558b2f;
+        font-size: 1.1em;
+        margin-bottom: 30px;
+        font-style: italic;
+    }
+    .footer {
+        text-align: center;
+        color: #795548;
+        font-size: 0.8em;
+        margin-top: 50px;
+        font-style: italic;
+    }
+    .stButton > button {
+        border-radius: 20px;
+        padding: 10px 25px;
+        font-size: 1em;
+        background: linear-gradient(90deg, #2e7d32, #4caf50) !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 4px 10px rgba(46,125,50,0.3);
+    }
+    .stButton > button:hover {
+        background: linear-gradient(90deg, #1b5e20, #388e3c) !important;
+        box-shadow: 0 6px 15px rgba(46,125,50,0.4);
+    }
+    .stMetric {
+        background: rgba(255,255,255,0.7);
+        padding: 10px;
+        border-radius: 10px;
+        border-left: 4px solid #4caf50;
+    }
+    .stExpander {
+        background: rgba(255,255,255,0.6) !important;
+        border-radius: 10px !important;
+        border: 1px solid #c8e6c9 !important;
+    }
+    div[data-testid="stFileUploader"] {
+        background: rgba(255,255,255,0.7);
+        padding: 20px;
+        border-radius: 15px;
+        border: 2px dashed #4caf50;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(255,255,255,0.5);
+        border-radius: 10px;
+        padding: 5px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        color: #2e7d32;
+        font-weight: bold;
+    }
+    .stSidebar {
+        background: linear-gradient(180deg, #e8f5e9, #f1f8e9) !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
