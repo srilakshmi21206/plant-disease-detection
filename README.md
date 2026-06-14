@@ -68,12 +68,6 @@ Edit `config.py` to customize:
 - Confidence threshold
 - Max file size
 
-## 📸 Screenshots
-### Home Page
-![Home](screenshot.png)
-
-### Disease Detection Result
-![Result](screenshot2.png)
 
 ## 👩‍💻 Built By
 Sri Lakshmi K — 
